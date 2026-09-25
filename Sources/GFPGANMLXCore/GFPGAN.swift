@@ -32,9 +32,9 @@ public final class ResBlock: Module {
     public let scaleFactor: Float
 
     public init(inChannels: Int, outChannels: Int, mode: Mode = .down) {
-        self._conv1.wrappedValue = Conv2d(
+        self._conv1.wrappedValue = WinogradFreeConv2d(
             inputChannels: inChannels, outputChannels: inChannels, kernelSize: 3, padding: 1)
-        self._conv2.wrappedValue = Conv2d(
+        self._conv2.wrappedValue = WinogradFreeConv2d(
             inputChannels: inChannels, outputChannels: outChannels, kernelSize: 3, padding: 1)
         self._skip.wrappedValue = Conv2d(
             inputChannels: inChannels, outputChannels: outChannels, kernelSize: 1, bias: false)
@@ -59,9 +59,9 @@ public final class ConditionBlock: Module {
     @ModuleInfo(key: "conv2") public var conv2: Conv2d
 
     public init(channels: Int, outChannels: Int) {
-        self._conv0.wrappedValue = Conv2d(
+        self._conv0.wrappedValue = WinogradFreeConv2d(
             inputChannels: channels, outputChannels: channels, kernelSize: 3, padding: 1)
-        self._conv2.wrappedValue = Conv2d(
+        self._conv2.wrappedValue = WinogradFreeConv2d(
             inputChannels: channels, outputChannels: outChannels, kernelSize: 3, padding: 1)
     }
 
@@ -136,7 +136,7 @@ public final class GFPGANv1Clean: Module, @unchecked Sendable {
         }
         self._convBodyDown.wrappedValue = down
 
-        self._finalConv.wrappedValue = Conv2d(
+        self._finalConv.wrappedValue = WinogradFreeConv2d(
             inputChannels: inCh, outputChannels: ch[4]!, kernelSize: 3, padding: 1)
 
         var up: [ResBlock] = []
@@ -164,6 +164,22 @@ public final class GFPGANv1Clean: Module, @unchecked Sendable {
         self._styleganDecoder.wrappedValue = StyleGAN2GeneratorCSFT(
             outSize: cfg.outSize, numStyleFeat: cfg.numStyleFeat, numMlp: cfg.numMlp,
             channelMultiplier: cfg.channelMultiplier, narrow: cfg.narrow, sftHalf: cfg.sftHalf)
+        super.init()
+        if let route = GFPGANConvRoute.environmentOverride { convRoute = route }
+    }
+
+    /// Route for the in-window 3×3 convs — the U-Net/SFT `Conv2d`s and the StyleGAN2 modulated
+    /// convs (WinogradFreeConv2d.swift). Default `.conv3d`: exact, and no slower at these shapes.
+    public var convRoute: GFPGANConvRoute {
+        get {
+            modules().lazy.compactMap { ($0 as? WinogradFreeConv2d)?.route }.first ?? .conv3d
+        }
+        set {
+            for m in modules() {
+                if let c = m as? WinogradFreeConv2d { c.route = newValue }
+                if let c = m as? ModulatedConv2d { c.convRoute = newValue }
+            }
+        }
     }
 
     /// Restore an aligned face crop.

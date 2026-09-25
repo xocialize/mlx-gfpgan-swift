@@ -41,6 +41,8 @@ public final class ModulatedConv2d: Module {
 
     @ModuleInfo(key: "modulation") public var modulation: Linear
     @ParameterInfo(key: "weight") public var weight: MLXArray
+    /// Route for the (in-window) modulated conv — WinogradFreeConv2d.swift.
+    public var convRoute: GFPGANConvRoute = GFPGANConvRoute.environmentOverride ?? .conv3d
 
     public init(inChannels: Int, outChannels: Int, kernelSize: Int, numStyleFeat: Int,
                 demodulate: Bool = true, sampleMode: String? = nil, eps: Float = 1e-8) {
@@ -78,12 +80,14 @@ public final class ModulatedConv2d: Module {
 
         let pad = kernelSize / 2
         if b == 1 {
-            return conv2d(input, w[0], padding: [pad, pad])
+            return WinogradFreeConv2d.conv(
+                input, weight: w[0], bias: nil, padding: (pad, pad), route: convRoute)
         }
         // General batch: per-sample kernels. Production is b == 1; this path exists for
         // completeness and mirrors upstream's groups=b trick without the layout gymnastics.
         let outs = (0 ..< b).map { i in
-            conv2d(input[i ..< (i + 1)], w[i], padding: [pad, pad])
+            WinogradFreeConv2d.conv(
+                input[i ..< (i + 1)], weight: w[i], bias: nil, padding: (pad, pad), route: convRoute)
         }
         return concatenated(outs, axis: 0)
     }

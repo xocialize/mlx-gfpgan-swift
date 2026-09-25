@@ -53,6 +53,37 @@ swift run gfpgan-align-gate oracle/align_fixtures
 swift run gfpgan-validate oracle/converted/GFPGANv1.4/model.safetensors photo.png
 ```
 
+## GPU numerics: mlx's lossy Winograd conv2d window (2026-09-24)
+
+mlx's Metal `conv2d` takes a Winograd F(6×6,3×3) path when the conv is 3×3, stride 1, dilation 1,
+groups 1, C % 32 == 0, O % 32 == 0, C + O ≥ 256 and N·H·W ≥ 4096. On M5 that path loses about
+6.4e-3 relL2 per conv in fp32, because its inner GEMM runs TF32.
+
+GFPGAN has 21 such convs per 512² face:
+
+- the U-Net ResBlocks and SFT condition heads, at 128/256 channels and 64²/128²;
+- six StyleGAN2 modulated convs, at 512/256/128 channels from 64² to 256². At batch 1 these are
+  dense conv2d calls.
+
+The S0–S3 gates pin the CPU device, so this never showed.
+
+Both kinds of site now take a route (`model.convRoute`, type `GFPGANConvRoute`). **Default
+`.conv3d`.**
+
+Measurements: aligned 512² face, production fp32, stored noise, GPU against the CPU lane.
+
+| | Raw conv2d (Winograd) | conv3d route |
+|---|---|---|
+| Output | 1.0e-3 · max 1.06e-2 · 2 levels | **7.5e-7 · exact-class** |
+| Forward time, 512² | 266 ms | 259 ms |
+
+- The raw loss is below 8-bit visibility. The route is still the default because it is free here
+  and it makes the GPU lane parity-clean: S3's max-rel ≤ 5e-4 would read 9.99e-3 on the raw GPU
+  lane.
+- GFPGAN has no TF32-eligible matmuls, so the route alone closes the gap.
+- Environment override: `GFPGAN_CONV_ROUTE=winograd|conv3d|fp32Winograd`.
+- Gate: `GFPGAN_LANE=1 swift test -c release -Xswiftc -enable-testing --filter GPULaneTests`.
+
 ## License
 
 Apache-2.0 (port code and weights). Upstream carries third-party carve-outs (NVIDIA
