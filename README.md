@@ -27,6 +27,12 @@ stored noise buffers included). Local conversion: `oracle/convert.py`.
 dtype gate exists for exactly this); bf16 gates clean (48 dB) but the weights are small
 enough that restoration follows the sibling-package fp32 precedent.
 
+**Engine-materialized weights read in place since 0.2.1 (AB-A-0112).** MLXEngine downloads the declared
+`weightSources` into its model store before `load()`; `load()` reads that copy (flat or snapshot layout) instead of
+fetching a second one through swift-transformers' `HubApi`. It also reads `<root>/models/<org>/<name>/`, where earlier
+versions downloaded, so existing installs aren't fetched again. `HubApi` remains only the backstop outside the engine
+(no store, or nothing materialized); an explicit `weightsURL` bypasses all of it.
+
 ## Gates (all green, 2026-07-27, M5 Max)
 
 | Gate | Result |
