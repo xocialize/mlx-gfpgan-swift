@@ -178,8 +178,9 @@ public final class GFPGANRestorePackage: ModelPackage {
             RunProgress.report(RunPhaseReport(phase: .postprocess, step: idx + 1,
                                               totalSteps: faces.count))
 
+            // The crop's border replicates the frame's edge pixels: no black where the frame ends (AB-T-0227).
             guard let cropCG = FaceAlign.warp(cg, transform: face.transform,
-                                              width: n, height: n),
+                                              width: n, height: n, border: FaceAlign.cropBorder),
                   let cropPB = Self.makePixelBuffer(from: cropCG),
                   let crop = rgbNHWC(from: ensureBGRA(cropPB), width: n, height: n) else {
                 throw GFPGANPackageError.imageDecodeFailed("face crop warp (face \(idx))")
@@ -262,7 +263,8 @@ public final class GFPGANRestorePackage: ModelPackage {
             try Task.checkCancellation()
             RunProgress.report(RunPhaseReport(phase: .postprocess, step: idx + 1,
                                               totalSteps: faces.count))
-            guard let cropWords = FaceAlign.warpDeep(source, transform: face.transform, width: n, height: n) else {
+            guard let cropWords = FaceAlign.warpDeep(source, transform: face.transform, width: n, height: n,
+                                                     border: FaceAlign.cropBorder) else {
                 throw GFPGANPackageError.imageDecodeFailed("face crop warp (face \(idx), 16-bit)")
             }
             let crop = rgbNHWC(fromRGBA16Words: cropWords, width: n, height: n)
